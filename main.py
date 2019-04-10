@@ -150,4 +150,4 @@ if __name__ == '__main__':
             loss.backward()
             optimizer.step()
             if batch_id % 100 == 1:
-                print('step {}, mi: {:.4f}'.format(batch_id + 1, -loss.item()))
+                print('step {}, mi: {:.4f}'.format(batch_id + 1, loss.item()))
