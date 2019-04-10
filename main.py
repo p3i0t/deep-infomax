@@ -164,11 +164,11 @@ if __name__ == '__main__':
 
     model = DIM(in_channel=1, global_dim=64).to(device)
 
-    if True:
+    if False:
         optimizer = Adam(model.parameters(), lr=1e-3)
 
         loss_optim = 1e4
-        for epoch in range(10):
+        for epoch in range(20):
             mean_loss = []
             for batch_id, (x, y) in enumerate(train_loader):
                 x = x.to(device)
@@ -176,11 +176,11 @@ if __name__ == '__main__':
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-                if batch_id % 100 == 1:
-                    print('step {}, mi: {:.4f}'.format(batch_id + 1, loss.item()))
                 mean_loss.append(loss.item())
+            print('Epoch: {}, loss: {:.4f}'.format(epoch+1, np.mean(mean_loss)))
 
             if np.mean(mean_loss) < loss_optim:
+                print('Saving checkpoint ...')
                 loss_optim = np.mean(mean_loss)
                 check_point = {"loss_optim": loss_optim,
                                'model_state': model.state_dict()}
@@ -191,13 +191,15 @@ if __name__ == '__main__':
         model.load_state_dict(check_point['model_state'])
         model.eval()
 
-        classifier = Classifier(dim=64, n_classes=10)
+        classifier = Classifier(dim=64, n_classes=10).to(device)
         classifier.train()
         c_optimizer = Adam(classifier.parameters(), lr=1e-3)
 
         for i in range(10):
             losses = []
             for batch_id, (x, y) in enumerate(train_loader):
+                x = x.to(device)
+                y = y.to(device)
                 _, x = model(x)
                 logits = classifier(x)
                 c_optimizer.zero_grad()
@@ -210,6 +212,8 @@ if __name__ == '__main__':
         classifier.eval()
         acc_list = []
         for batch_id, (x, y) in enumerate(test_loader):
+            x = x.to(device)
+            y = y.to(device)
             _, x = model(x)
             logits = classifier(x)
             idx = logits.argmax(dim=1)
