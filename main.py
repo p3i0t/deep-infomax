@@ -21,7 +21,11 @@ class C(nn.Module):
                                   nn.Conv2d(self.multiplier, 2 * self.multiplier, kernel_size=3, stride=2, padding=1),
                                   nn.BatchNorm2d(2 * self.multiplier),
                                   nn.ReLU(),
-                                  nn.Conv2d(2 * self.multiplier, 4 * self.multiplier, kernel_size=3, stride=2, padding=1)
+                                  nn.Conv2d(2 * self.multiplier, 4 * self.multiplier, kernel_size=3, stride=2, padding=1),
+                                  nn.BatchNorm2d(4 * self.multiplier),
+                                  nn.ReLU(),
+                                  nn.Conv2d(4 * self.multiplier, 4 * self.multiplier, kernel_size=3, stride=2,
+                                            padding=1)
                                   )
 
     def forward(self, x):
@@ -32,9 +36,9 @@ class Encoder(nn.Module):
     def __init__(self, in_channel, global_dim=64):
         super().__init__()
         self.c = C(in_channel)
-        self.f = nn.Sequential(nn.Linear(128*4*4, 1024),
+        self.f = nn.Sequential(nn.Linear(128*2*2, 512),
                                nn.ReLU(),
-                               nn.Linear(1024, global_dim))
+                               nn.Linear(512, global_dim))
 
     def forward(self, x):
         local_feature_map = self.c(x)
@@ -43,35 +47,13 @@ class Encoder(nn.Module):
         return local_, global_feature
 
 
-class T(nn.Module):
-    def __init__(self, in_channel, global_dim=64):
-        super().__init__()
-        self.enc = Encoder(in_channel, global_dim)
-        self.t = nn.Sequential(nn.Linear(128*4*4 + global_dim, 512),
-                               nn.ReLU(),
-                               nn.Linear(512, 128),
-                               nn.ReLU(),
-                               nn.Linear(128, 1))
-
-    def forward(self, x):
-        local_, global_ = self.enc(x)
-        pair = torch.cat([local_, global_], dim=1)
-        paired_scores = self.t(pair)
-
-        global_shuffle = global_[torch.randperm(global_.size()[0])]
-        unpairs = torch.cat([local_, global_shuffle])
-        unpaired_scores = self.t(unpairs)
-
-        return paired_scores, unpaired_scores
-
-
 class Critic(nn.Module):
     def __init__(self, global_dim=64):
         super().__init__()
         self.f = nn.Sequential(
-            nn.Linear(global_dim, global_dim),
+            nn.Linear(global_dim, 512),
             nn.ReLU(),
-            nn.Linear(global_dim, global_dim),
+            nn.Linear(512, 1),
             nn.Sigmoid()
         )
 
@@ -84,7 +66,7 @@ class DIM(nn.Module):
         super().__init__()
         self.global_dim = global_dim
         self.enc = Encoder(in_channel, global_dim)
-        self.t = nn.Sequential(nn.Linear(128*4*4 + global_dim, 512),
+        self.t = nn.Sequential(nn.Linear(128*2*2 + global_dim, 512),
                                nn.ReLU(),
                                nn.Linear(512, 128),
                                nn.ReLU(),
