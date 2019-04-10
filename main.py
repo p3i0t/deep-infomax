@@ -63,6 +63,57 @@ class T(nn.Module):
         return paired_scores, unpaired_scores
 
 
+class Critic(nn.Module):
+    def __init__(self, global_dim=64):
+        super().__init__()
+        self.f = nn.Sequential(
+            nn.Linear(global_dim, global_dim),
+            nn.ReLU(),
+            nn.Linear(global_dim, global_dim),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        return self.f(x)
+
+
+class DIM(nn.Module):
+    def __init__(self, in_channel, global_dim=64):
+        super().__init__()
+        self.global_dim = global_dim
+        self.enc = Encoder(in_channel, global_dim)
+        self.t = nn.Sequential(nn.Linear(128*4*4 + global_dim, 512),
+                               nn.ReLU(),
+                               nn.Linear(512, 128),
+                               nn.ReLU(),
+                               nn.Linear(128, 1))
+
+        self.critic = Critic(global_dim)
+
+    def forward(self, x):
+        local_, global_ = self.enc(x)
+        pair = torch.cat([local_, global_], dim=1)
+        paired_scores = self.t(pair)
+
+        global_shuffle = global_[torch.randperm(global_.size()[0])]
+        unpairs = torch.cat([local_, global_shuffle])
+        unpaired_scores = self.t(unpairs)
+
+        mi = donsker_varadhan_loss(paired_scores, unpaired_scores)
+
+        real_samples = torch.randn(x.size(0), self.global_dim).to(device)
+        fake_samples = global_
+
+        real_probs = self.critic(real_samples)
+        fake_probs = self.critic(fake_samples)
+
+        log_probs = torch.log(real_probs) + torch.log(1. - fake_probs)
+        regulation = -log_probs.mean()
+
+        loss = mi + 0.1 * regulation
+        return loss
+
+
 def log_mean_exp(x):
     """Stable log mean exp."""
     max_ = x.max()
@@ -88,14 +139,13 @@ if __name__ == '__main__':
 
     train_loader = DataLoader(dataset=dataset, batch_size=32, shuffle=True)
 
-    model = T(in_channel=1, global_dim=64).to(device)
+    model = DIM(in_channel=1, global_dim=64).to(device)
     optimizer = Adam(model.parameters(), lr=1e-3)
 
     for epoch in range(10):
         for batch_id, (x, y) in enumerate(train_loader):
             x = x.to(device)
-            paired_scores, unpaired_scores = model(x)
-            loss = donsker_varadhan_loss(paired_scores, unpaired_scores)
+            loss = model(x)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
