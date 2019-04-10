@@ -1,8 +1,10 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from torch.optim import Adam
+import numpy as np
 
 
 def flatten(x):
@@ -111,7 +113,7 @@ class DIM(nn.Module):
         regulation = -log_probs.mean()
 
         loss = mi + 0.1 * regulation
-        return loss
+        return loss, global_
 
 
 def log_mean_exp(x):
@@ -123,6 +125,19 @@ def log_mean_exp(x):
 def donsker_varadhan_loss(paired_scores, unpaired_scores):
     mi = paired_scores.mean() - log_mean_exp(unpaired_scores)
     return -mi
+
+
+class Classifier(nn.Module):
+    def __init__(self, dim=64, n_classes=10):
+        super().__init__()
+        self.f = nn.Sequential(
+            nn.Linear(dim, dim * 2),
+            nn.ReLU(),
+            nn.Linear(dim * 2, n_classes),
+        )
+
+    def forward(self, x):
+        return self.f(x)
 
 
 if __name__ == '__main__':
@@ -137,17 +152,68 @@ if __name__ == '__main__':
                                  # transforms.Normalize((0.1307,), (0.3081,))
                              ]))
 
-    train_loader = DataLoader(dataset=dataset, batch_size=32, shuffle=True)
+    test_dataset = datasets.MNIST('data/MNIST', train=False, download=True,
+                             transform=transforms.Compose([
+                                 transforms.Resize((32, 32)),
+                                 transforms.ToTensor(),
+                                 # transforms.Normalize((0.1307,), (0.3081,))
+                             ]))
+
+    train_loader = DataLoader(dataset=dataset, batch_size=200, shuffle=True)
+    test_loader = DataLoader(dataset=test_dataset, batch_size=200, shuffle=True)
 
     model = DIM(in_channel=1, global_dim=64).to(device)
-    optimizer = Adam(model.parameters(), lr=1e-3)
 
-    for epoch in range(10):
-        for batch_id, (x, y) in enumerate(train_loader):
-            x = x.to(device)
-            loss = model(x)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            if batch_id % 100 == 1:
-                print('step {}, mi: {:.4f}'.format(batch_id + 1, loss.item()))
+    if True:
+        optimizer = Adam(model.parameters(), lr=1e-3)
+
+        loss_optim = 1e4
+        for epoch in range(10):
+            mean_loss = []
+            for batch_id, (x, y) in enumerate(train_loader):
+                x = x.to(device)
+                loss, _ = model(x)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                if batch_id % 100 == 1:
+                    print('step {}, mi: {:.4f}'.format(batch_id + 1, loss.item()))
+                mean_loss.append(loss.item())
+
+            if np.mean(mean_loss) < loss_optim:
+                loss_optim = np.mean(mean_loss)
+                check_point = {"loss_optim": loss_optim,
+                               'model_state': model.state_dict()}
+
+                torch.save(check_point, 'model.ckpt')
+    else:
+        check_point = torch.load('model.ckpt')
+        model.load_state_dict(check_point['model_state'])
+        model.eval()
+
+        classifier = Classifier(dim=64, n_classes=10)
+        classifier.train()
+        c_optimizer = Adam(classifier.parameters(), lr=1e-3)
+
+        for i in range(10):
+            losses = []
+            for batch_id, (x, y) in enumerate(train_loader):
+                _, x = model(x)
+                logits = classifier(x)
+                c_optimizer.zero_grad()
+                loss = F.cross_entropy(logits, y)
+                loss.backward()
+                c_optimizer.step()
+                losses.append(loss.item())
+            print('epoch: {}, mean_loss: {:.4f}'.format(i+1, np.mean(losses)))
+
+        classifier.eval()
+        acc_list = []
+        for batch_id, (x, y) in enumerate(test_loader):
+            _, x = model(x)
+            logits = classifier(x)
+            idx = logits.argmax(dim=1)
+            acc = (idx == y).float().mean().item()
+            acc_list.append(acc)
+        print('Test set acc: {:.4f}'.format(np.mean(acc_list)))
+
