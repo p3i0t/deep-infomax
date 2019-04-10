@@ -96,7 +96,7 @@ class DIM(nn.Module):
         paired_scores = self.t(pair)
 
         global_shuffle = global_[torch.randperm(global_.size()[0])]
-        unpairs = torch.cat([local_, global_shuffle])
+        unpairs = torch.cat([local_, global_shuffle], dim=1)
         unpaired_scores = self.t(unpairs)
 
         mi = donsker_varadhan_loss(paired_scores, unpaired_scores)
