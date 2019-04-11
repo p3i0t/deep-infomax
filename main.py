@@ -24,9 +24,9 @@ class C(nn.Module):
                                   nn.ReLU(),
                                   nn.Conv2d(2 * self.multiplier, 4 * self.multiplier, kernel_size=3, stride=2, padding=1),
                                   nn.BatchNorm2d(4 * self.multiplier),
-                                  # nn.ReLU(),
-                                  # nn.Conv2d(4 * self.multiplier, 4 * self.multiplier, kernel_size=3, stride=2,
-                                  #           padding=1)
+                                  nn.ReLU(),
+                                  nn.Conv2d(4 * self.multiplier, 4 * self.multiplier, kernel_size=3, stride=2,
+                                            padding=1)
                                   )
 
     def forward(self, x):
@@ -97,6 +97,23 @@ class ConvT(nn.Module):
         return flatten(out)
 
 
+class MLP_T(nn.Module):
+    def __init__(self, in_channel):
+        self.multiplier = in_channel
+        super().__init__()
+        self.lin = nn.Sequential(nn.Linear(self.multiplier*5, 512),
+                                  nn.ReLU(),
+                                  nn.Linear(512, 512),
+                                  nn.ReLU(),
+                                  nn.Linear(512, 1)
+                                  )
+
+    def forward(self, global_, local_):
+        cat = torch.cat([flatten(global_), flatten(local_)], dim=1)
+        out = self.lin(cat)
+        return out
+
+
 class DIM(nn.Module):
     def __init__(self, in_channel, global_dim=64):
         super().__init__()
@@ -107,7 +124,7 @@ class DIM(nn.Module):
         #                        nn.Linear(512, 128),
         #                        nn.ReLU(),
         #                        nn.Linear(128, 1))
-        self.t = ConvT(128*2)
+        self.t = MLP_T(128)
 
         self.critic = Critic(global_dim)
 
