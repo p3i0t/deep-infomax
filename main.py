@@ -7,6 +7,7 @@ from torch.optim import Adam
 import numpy as np
 import math
 
+
 def flatten(x):
     return x.view(x.size(0), -1)
 
@@ -22,10 +23,10 @@ class C(nn.Module):
                                   nn.BatchNorm2d(2 * self.multiplier),
                                   nn.ReLU(),
                                   nn.Conv2d(2 * self.multiplier, 4 * self.multiplier, kernel_size=3, stride=2, padding=1),
-                                  nn.BatchNorm2d(4 * self.multiplier),
-                                  nn.ReLU(),
-                                  nn.Conv2d(4 * self.multiplier, 4 * self.multiplier, kernel_size=3, stride=2,
-                                            padding=1)
+                                  # nn.BatchNorm2d(4 * self.multiplier),
+                                  # nn.ReLU(),
+                                  # nn.Conv2d(4 * self.multiplier, 4 * self.multiplier, kernel_size=3, stride=2,
+                                  #           padding=1)
                                   )
 
     def forward(self, x):
@@ -36,9 +37,15 @@ class Encoder(nn.Module):
     def __init__(self, in_channel, global_dim=64):
         super().__init__()
         self.c = C(in_channel)
-        self.f = nn.Sequential(nn.Linear(128*2*2, 512),
+        # self.f = nn.Sequential(nn.Linear(128*2*2, 512),
+        #                        nn.ReLU(),
+        #                        nn.Linear(512, global_dim))
+        multiplier = 128
+        self.f = nn.Sequential(nn.Conv2d(multiplier, multiplier, kernel_size=3, stride=2, padding=1),
+                               nn.BatchNorm2d(self.multiplier),
                                nn.ReLU(),
-                               nn.Linear(512, global_dim))
+                               nn.Conv2d(multiplier, multiplier, kernel_size=3, stride=2, padding=1),
+                               )
 
     def forward(self, x):
         local_feature_map = self.c(x)
@@ -65,35 +72,52 @@ def log_unit_gaussian(x):
     return -0.5 * (math.log(2 * math.pi) + x.pow(2).sum(dim=1))
 
 
+class ConvT(nn.Module):
+    def __init__(self, in_channel):
+        self.multiplier = in_channel
+        super().__init__()
+        self.conv = nn.Sequential(nn.Conv2d(in_channel, self.multiplier, kernel_size=1),
+                                  nn.BatchNorm2d(self.multiplier),
+                                  nn.ReLU(),
+                                  nn.Conv2d(self.multiplier, self.multiplier, kernel_size=1),
+                                  nn.BatchNorm2d(self.multiplier),
+                                  nn.ReLU(),
+                                  nn.Conv2d(self.multiplier, 1, kernel_size=1)
+                                  )
+
+    def forward(self, global_, local_):
+        b, c = global_.size()
+        b_, c_, h, w = local_.size()
+        global_ = global_.view(b, c, 1, 1).repeat(1, 1, h, w)
+
+        cat = torch.cat([global_, local_], dim=1)
+        out = self.conv(cat)
+        assert (b, 1, h, w) == out.size()
+        return out
+
+
 class DIM(nn.Module):
     def __init__(self, in_channel, global_dim=64):
         super().__init__()
         self.global_dim = global_dim
         self.enc = Encoder(in_channel, global_dim)
-        self.t = nn.Sequential(nn.Linear(128*2*2 + global_dim, 512),
-                               nn.ReLU(),
-                               nn.Linear(512, 128),
-                               nn.ReLU(),
-                               nn.Linear(128, 1))
+        # self.t = nn.Sequential(nn.Linear(128*2*2 + global_dim, 512),
+        #                        nn.ReLU(),
+        #                        nn.Linear(512, 128),
+        #                        nn.ReLU(),
+        #                        nn.Linear(128, 1))
+        self.t = ConvT()
 
         self.critic = Critic(global_dim)
 
     def forward(self, x):
         local_, global_ = self.enc(x)
-        pair = torch.cat([local_, global_], dim=1)
-        paired_scores = self.t(pair)
+        # pair = torch.cat([local_, global_], dim=1)
+        paired_scores = self.t(global_, local_)
 
-        global_shuffle1 = global_[torch.randperm(global_.size()[0])]
-        global_shuffle2 = global_[torch.randperm(global_.size()[0])]
-        global_shuffle3 = global_[torch.randperm(global_.size()[0])]
 
-        unpairs1 = torch.cat([local_, global_shuffle1], dim=1)
-        unpairs2 = torch.cat([local_, global_shuffle2], dim=1)
-        unpairs3 = torch.cat([local_, global_shuffle3], dim=1)
-
-        unpairs = torch.cat([unpairs1, unpairs2, unpairs3], dim=0)
-
-        unpaired_scores = self.t(unpairs)
+        global_shuffle = global_[torch.randperm(global_.size()[0])]
+        unpaired_scores = self.t(global_shuffle, local_)
 
         mi = donsker_varadhan_loss(paired_scores, unpaired_scores)
 
@@ -104,7 +128,7 @@ class DIM(nn.Module):
         # fake_probs = self.critic(fake_samples)
         #
         # log_probs = torch.log(real_probs) + torch.log(1. - fake_probs)
-        nll = log_unit_gaussian(global_)  # Gaussianize
+        nll = -log_unit_gaussian(global_)  # Gaussianize
         regulation = nll.mean()
 
         loss = mi + 0.1 * regulation
