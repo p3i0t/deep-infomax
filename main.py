@@ -23,7 +23,7 @@ class C(nn.Module):
                                   nn.BatchNorm2d(2 * self.multiplier),
                                   nn.ReLU(),
                                   nn.Conv2d(2 * self.multiplier, 4 * self.multiplier, kernel_size=3, stride=2, padding=1),
-                                  # nn.BatchNorm2d(4 * self.multiplier),
+                                  nn.BatchNorm2d(4 * self.multiplier),
                                   # nn.ReLU(),
                                   # nn.Conv2d(4 * self.multiplier, 4 * self.multiplier, kernel_size=3, stride=2,
                                   #           padding=1)
@@ -77,10 +77,10 @@ class ConvT(nn.Module):
     def __init__(self, in_channel):
         self.multiplier = in_channel
         super().__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_channel, self.multiplier, kernel_size=1),
+        self.conv = nn.Sequential(nn.Conv2d(in_channel, self.multiplier, kernel_size=3, stride=2, padding=1),
                                   nn.BatchNorm2d(self.multiplier),
                                   nn.ReLU(),
-                                  nn.Conv2d(self.multiplier, self.multiplier, kernel_size=1),
+                                  nn.Conv2d(self.multiplier, self.multiplier, kernel_size=3, stride=2, padding=1),
                                   nn.BatchNorm2d(self.multiplier),
                                   nn.ReLU(),
                                   nn.Conv2d(self.multiplier, 1, kernel_size=1)
@@ -93,8 +93,8 @@ class ConvT(nn.Module):
 
         cat = torch.cat([global_, local_], dim=1)
         out = self.conv(cat)
-        assert (b, 1, h, w) == out.size()
-        return out
+        # assert (b, 1, h, w) == out.size()
+        return flatten(out)
 
 
 class DIM(nn.Module):
@@ -115,7 +115,6 @@ class DIM(nn.Module):
         local_, global_ = self.enc(x)
         # pair = torch.cat([local_, global_], dim=1)
         paired_scores = self.t(global_, local_)
-
 
         global_shuffle = global_[torch.randperm(global_.size()[0])]
         unpaired_scores = self.t(global_shuffle, local_)
