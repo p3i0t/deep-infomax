@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from torch.optim import Adam
 import numpy as np
-
+import math
 
 def flatten(x):
     return x.view(x.size(0), -1)
@@ -61,6 +61,10 @@ class Critic(nn.Module):
         return self.f(x)
 
 
+def log_unit_gaussian(x):
+    return -0.5 * (math.log(2 * math.pi) + x.pow(2).sum(dim=1))
+
+
 class DIM(nn.Module):
     def __init__(self, in_channel, global_dim=64):
         super().__init__()
@@ -93,14 +97,15 @@ class DIM(nn.Module):
 
         mi = donsker_varadhan_loss(paired_scores, unpaired_scores)
 
-        real_samples = torch.randn(x.size(0), self.global_dim).to(device)
-        fake_samples = global_
-
-        real_probs = self.critic(real_samples)
-        fake_probs = self.critic(fake_samples)
-
-        log_probs = torch.log(real_probs) + torch.log(1. - fake_probs)
-        regulation = -log_probs.mean()
+        # real_samples = torch.randn(x.size(0), self.global_dim).to(device)
+        # fake_samples = global_
+        #
+        # real_probs = self.critic(real_samples)
+        # fake_probs = self.critic(fake_samples)
+        #
+        # log_probs = torch.log(real_probs) + torch.log(1. - fake_probs)
+        nll = log_unit_gaussian(global_)  # Gaussianize
+        regulation = nll.mean()
 
         loss = mi + 0.1 * regulation
         return loss, global_
@@ -149,7 +154,7 @@ if __name__ == '__main__':
                                  # transforms.Normalize((0.1307,), (0.3081,))
                              ]))
 
-    train_loader = DataLoader(dataset=dataset, batch_size=200, shuffle=True)
+    train_loader = DataLoader(dataset=dataset, batch_size=100, shuffle=True)
     test_loader = DataLoader(dataset=test_dataset, batch_size=200, shuffle=True)
 
     model = DIM(in_channel=1, global_dim=64).to(device)
