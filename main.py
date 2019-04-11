@@ -42,16 +42,17 @@ class Encoder(nn.Module):
         #                        nn.Linear(512, global_dim))
         multiplier = 128
         self.f = nn.Sequential(nn.Conv2d(multiplier, multiplier, kernel_size=3, stride=2, padding=1),
-                               nn.BatchNorm2d(self.multiplier),
+                               nn.BatchNorm2d(multiplier),
                                nn.ReLU(),
                                nn.Conv2d(multiplier, multiplier, kernel_size=3, stride=2, padding=1),
                                )
 
     def forward(self, x):
         local_feature_map = self.c(x)
-        local_ = flatten(local_feature_map)
-        global_feature = self.f(local_)
-        return local_, global_feature
+        #print('c size ', local_feature_map.size())
+        #local_ = flatten(local_feature_map)
+        global_feature = self.f(local_feature_map)
+        return local_feature_map, global_feature
 
 
 class Critic(nn.Module):
@@ -86,9 +87,9 @@ class ConvT(nn.Module):
                                   )
 
     def forward(self, global_, local_):
-        b, c = global_.size()
-        b_, c_, h, w = local_.size()
-        global_ = global_.view(b, c, 1, 1).repeat(1, 1, h, w)
+        #b, c = global_.size()
+        b, c, h, w = local_.size()
+        global_ = global_.repeat(1, 1, h, w)
 
         cat = torch.cat([global_, local_], dim=1)
         out = self.conv(cat)
@@ -106,7 +107,7 @@ class DIM(nn.Module):
         #                        nn.Linear(512, 128),
         #                        nn.ReLU(),
         #                        nn.Linear(128, 1))
-        self.t = ConvT()
+        self.t = ConvT(128*2)
 
         self.critic = Critic(global_dim)
 
@@ -147,7 +148,7 @@ def donsker_varadhan_loss(paired_scores, unpaired_scores):
 
 
 class Classifier(nn.Module):
-    def __init__(self, dim=64, n_classes=10):
+    def __init__(self, dim=128, n_classes=10):
         super().__init__()
         self.f = nn.Sequential(
             nn.Linear(dim, dim * 2),
@@ -156,7 +157,7 @@ class Classifier(nn.Module):
         )
 
     def forward(self, x):
-        return self.f(x)
+        return self.f(x.squeeze())
 
 
 if __name__ == '__main__':
@@ -210,7 +211,7 @@ if __name__ == '__main__':
         model.load_state_dict(check_point['model_state'])
         model.eval()
 
-        classifier = Classifier(dim=64, n_classes=10).to(device)
+        classifier = Classifier(dim=128, n_classes=10).to(device)
         classifier.train()
         c_optimizer = Adam(classifier.parameters(), lr=1e-3)
 
